@@ -7,7 +7,7 @@
 
 (declare -main)
 (declare prompt-usuario)
-(declare print-carteira)
+(declare print-carteira-user)
 (declare get-close)
 (def guardar-nome (atom nil))
 (def guardar-quantidade (atom nil))
@@ -15,7 +15,7 @@
 (def guardar-valor (atom nil))
 (def carteira (atom {}))
 
-(defn csv->maps [filename]
+(defn csv->map [filename]
   (with-open [reader (io/reader filename :encoding "UTF-8")]
     (let [data (csv/read-csv reader)
           headers (map keyword (first data))
@@ -25,7 +25,7 @@
 (defn select-keys-from-maps [maps keys]
   (map #(select-keys % keys) maps))
 
-(defn decode-unicode [s]
+(defn decode-regex [s]
   (let [matcher (re-matcher #"\\u([0-9a-fA-F]{4})" s)
         buffer (StringBuilder.)]
     (loop []
@@ -36,21 +36,21 @@
 
 (defn format-to-json-string [data]
   (let [json-object (json/write-str data :pretty true)]
-    (decode-unicode (str/replace json-object #"[{}]" ""))))
+    (decode-regex (str/replace json-object #"[{}]" ""))))
 
-(defn print-carteira [chamar-prompt?]
+(defn print-carteira-user [chamar-prompt?]
   (println "Sua carteira:")
   (doseq [[acao dados] @carteira]
     (println (str "Nome da ação: " acao ", Quantidade: " (:quantidade dados) ", Valor Total: " (:valor-total dados))))
   (if chamar-prompt?
     (prompt-usuario false)))
 
-(defn print-csv-data [csv-data]
+(defn print-csv [csv-data]
   (println "Lista do CSV:")
   (doseq [item csv-data]
     (println (str "Código: " (:Código item) ", Nome: " (:Nome item)))))
 
-(defn comprar-acao [short-name close]
+(defn comprar-acoes [short-name close]
   (println "Quantas ações você deseja comprar? ")
   (let [quantidade (Integer/parseInt (read-line))
         total (* quantidade close)]
@@ -62,8 +62,8 @@
     (println "Valor Total: " total)
     (prompt-usuario false short-name close)))
 
-(defn vender-acao []
-  (print-carteira false)
+(defn vender-acoes []
+  (print-carteira-user false)
   (println "Qual ação você deseja vender?")
   (let [acao (str/trim (read-line))]
     (if-let [dados (get @carteira acao)]
@@ -88,10 +88,10 @@
 
 
 (defn rever-b3 []
-  (let [csv-data (csv->maps "acoes-listadas.csv")
+  (let [csv-data (csv->map "acoes-listadas.csv")
         keys-to-select [:Código :Nome]
         selected-data (select-keys-from-maps csv-data keys-to-select)]
-    (print-csv-data selected-data)
+    (print-csv selected-data)
     (prompt-usuario false)))
 
 
@@ -174,24 +174,24 @@
       (println "5 - Sair")))
   (let [opcao (Integer/parseInt (read-line))]
     (cond
-      (and (= opcao 1) api-data-mode) (comprar-acao short-name close)
-      (and (= opcao 1) (not api-data-mode)) (vender-acao)
-      (and (= opcao 2) api-data-mode) (vender-acao)
+      (and (= opcao 1) api-data-mode) (comprar-acoes short-name close)
+      (and (= opcao 1) (not api-data-mode)) (vender-acoes)
+      (and (= opcao 2) api-data-mode) (vender-acoes)
       (and (= opcao 2) (not api-data-mode)) (print-api-data)
       (and (= opcao 3) api-data-mode) (print-api-data)
       (and (= opcao 3) (not api-data-mode)) (rever-b3)
       (and (= opcao 4) api-data-mode) (rever-b3)
-      (and (= opcao 4) (not api-data-mode)) (print-carteira true)
-      (and (= opcao 5) api-data-mode) (print-carteira true)
+      (and (= opcao 4) (not api-data-mode)) (print-carteira-user true)
+      (and (= opcao 5) api-data-mode) (print-carteira-user true)
       (and (= opcao 5) (not api-data-mode)) (println "Encerrando o programa...")
       (and (= opcao 6) api-data-mode) (println "Encerrando o programa...")
       :else (do (println "Opção inválida, tente novamente.") (if api-data-mode (prompt-usuario true short-name close) (-main))))))  ;; Chama a função main novamente se a opção for inválida
 
 (defn -main []
-  (let [csv-data (csv->maps "acoes-listadas.csv")
+  (let [csv-data (csv->map "acoes-listadas.csv")
         keys-to-select [:Código :Nome]
         selected-data (select-keys-from-maps csv-data keys-to-select)]
-    (print-csv-data selected-data)
+    (print-csv selected-data)
     (print-api-data)))
 
 
