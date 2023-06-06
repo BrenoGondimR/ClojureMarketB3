@@ -5,6 +5,16 @@
             [clojure.string :as str]
             [clj-http.client :as http]))
 
+(declare -main)
+(declare prompt-usuario)
+(declare print-carteira)
+(declare get-close)
+(def guardar-nome (atom nil))
+(def guardar-quantidade (atom nil))
+
+(def guardar-valor (atom nil))
+(def carteira (atom {}))
+
 (defn csv->maps [filename]
   (with-open [reader (io/reader filename :encoding "UTF-8")]
     (let [data (csv/read-csv reader)
@@ -15,81 +25,174 @@
 (defn select-keys-from-maps [maps keys]
   (map #(select-keys % keys) maps))
 
+(defn decode-unicode [s]
+  (let [matcher (re-matcher #"\\u([0-9a-fA-F]{4})" s)
+        buffer (StringBuilder.)]
+    (loop []
+      (when (.find matcher)
+        (.append buffer (char (Integer/parseInt (.group matcher 1) 16)))
+        (recur)))
+    (str buffer)))
+
 (defn format-to-json-string [data]
-  (let [json-object (json/write-str data :escape false :pretty true)]
-    (str/replace json-object #"[{}]" "")))
+  (let [json-object (json/write-str data :pretty true)]
+    (decode-unicode (str/replace json-object #"[{}]" ""))))
 
-(defn get-stock-details [symbol]
-  (let [api-url (str "https://brapi.dev/api/quote/" symbol)]
-    (-> api-url
-        http/get
-        :body
-        json/read-str)))
-
-(defn print-json-from-api [api-url]
-  (let [response (-> api-url
-                     http/get)]
-    (if (= (:status response) 200)
-      (do
-        (println "JSON da API:")
-        (let [json-data (json/read-str (:body response))]
-          (println (json/write-str json-data :indent 2))))
-      (println "Erro na conexão com a API."))))
+(defn print-carteira [chamar-prompt?]
+  (println "Sua carteira:")
+  (doseq [[acao dados] @carteira]
+    (println (str "Nome da ação: " acao ", Quantidade: " (:quantidade dados) ", Valor Total: " (:valor-total dados))))
+  (if chamar-prompt?
+    (prompt-usuario false)))
 
 (defn print-csv-data [csv-data]
   (println "Lista do CSV:")
   (doseq [item csv-data]
-    (let [json-output (format-to-json-string item)]
-      (println json-output))))
+    (println (str "Código: " (:Código item) ", Nome: " (:Nome item)))))
 
-(defn print-api-data [stock-code]
-  (println "Obtendo detalhes da ação...")
+(defn comprar-acao [short-name close]
+  (println "Quantas ações você deseja comprar? ")
+  (let [quantidade (Integer/parseInt (read-line))
+        total (* quantidade close)]
+    (println "Ação comprada com sucesso! Quantidade: " quantidade)
+    (println "Total a pagar: R$" total)
+    (swap! carteira assoc short-name {:quantidade quantidade :valor-total total})
+    (println "Nome da ação: " short-name)
+    (println "Quantidade de ações: " quantidade)
+    (println "Valor Total: " total)
+    (prompt-usuario false short-name close)))
+
+(defn vender-acao []
+  (print-carteira false)
+  (println "Qual ação você deseja vender?")
+  (let [acao (str/trim (read-line))]
+    (if-let [dados (get @carteira acao)]
+      (do
+        (println "Quantas ações você deseja vender?")
+        (let [quantidade (Integer/parseInt (read-line))
+              quantidade-acao (:quantidade dados)
+              valor-total (:valor-total dados)
+              close (get-close acao)  ;; Obtem o valor da ação
+              total (* quantidade close)]
+          (if (<= quantidade quantidade-acao)
+            (do
+              (let [novo-valor-total (- valor-total total)]
+                (swap! carteira assoc acao {:quantidade (- quantidade-acao quantidade) :valor-total novo-valor-total})  ;; Subtrai a quantidade vendida
+                (println "Ação vendida com sucesso! Quantidade: " quantidade)
+                (println "Total ganho: R$" total)
+                (println "Quantidade de ações restantes: " (- quantidade-acao quantidade))
+                (println "Valor Total: " novo-valor-total)
+                (prompt-usuario false))
+            (println "Você não tem ações suficientes para vender.")))
+          (println "Você não possui essa ação em sua carteira."))))))
+
+
+(defn rever-b3 []
+  (let [csv-data (csv->maps "acoes-listadas.csv")
+        keys-to-select [:Código :Nome]
+        selected-data (select-keys-from-maps csv-data keys-to-select)]
+    (print-csv-data selected-data)
+    (prompt-usuario false)))  ;; Chama a função prompt-usuario
+
+
+(defn get-close [stock-code]  ;; Adicionada função para obter o valor de uma ação
   (let [api-url (str "https://brapi.dev/api/quote/" stock-code)
         response (http/get api-url)
-        body (json/read-str (:body response) :key-fn keyword)]
+        body (json/read-str (:body response) :key-fn keyword)]  ;; Construção do corpo da requisição
     (if (= (:status response) 200)
       (let [results (get body :results)
-            parsed-body (if (not-empty results) (first results))]
+            parsed-body (if (not-empty results)
+                          (first results)
+                          (throw (Exception. "Nenhum resultado encontrado para a ação.")))]  ;; Parse dos resultados
         (if parsed-body
-          (do
-            (println "Detalhes da ação:")
-            (let [short-name (get parsed-body :shortName)
-                  long-name (get parsed-body :longName)
-                  symbol (get parsed-body :symbol)
-                  asset-type (or (re-find #"ON" short-name) (re-find #"PN" short-name) "Não disponível")
-                  variation (str (get parsed-body :regularMarketChange) " (" (get parsed-body :regularMarketChangePercent) "%)")
-                  last-price (get parsed-body :regularMarketPrice)
-                  high (get parsed-body :regularMarketDayHigh)
-                  low (get parsed-body :regularMarketDayLow)
-                  open (get parsed-body :regularMarketOpen)
-                  close (get parsed-body :regularMarketPreviousClose)
-                  time (get parsed-body :regularMarketTime)]
-              (println "Nome da ação: " (if short-name (first (str/split short-name #" ")) "") " (" long-name ")")
-              (println "Código da ação: " symbol)
-              (println "Tipo de ativo: " asset-type)
-              (println "Descrição da ação: Não há um campo específico para a descrição da ação neste JSON.")
-              (println "Variação do dia (em R$): " (get parsed-body :regularMarketChange))
-              (println "Variação do dia (percentual): " (get parsed-body :regularMarketChangePercent) "%")
-              (println "Último preço: " last-price)
-              (println "Preço máximo: " high)
-              (println "Preço mínimo: " low)
-              (println "Preço de abertura: " open)
-              (println "Preço de fechamento: " close)
-              (println "Hora: " time))))
-        (println "Nenhum resultado encontrado para a ação.")))
-    (println "Erro na conexão com a API.")))
+          ;; Se os resultados existem, obtemos o preço de fechamento
+          (get parsed-body :regularMarketPreviousClose)
+          ;; Se os resultados estiverem vazios, lançamos uma exceção
+          (throw (Exception. "Nenhum resultado encontrado para a ação."))))
+      ;; Se a resposta da API não for bem-sucedida, lançamos uma exceção
+      (throw (Exception. "Erro na conexão com a API.")))))  ;; Lançamento de exceção
+
+
+
+(defn print-api-data []
+  (println "Digite o código da ação para obter os detalhes:")
+  (let [stock-code (str/trim (read-line))]
+    (println "Obtendo detalhes da ação...")
+    (let [api-url (str "https://brapi.dev/api/quote/" stock-code)
+          response (http/get api-url)
+          body (json/read-str (:body response) :key-fn keyword)]
+      (if (= (:status response) 200)
+        (let [results (get body :results)
+              parsed-body (if (not-empty results) (first results))]
+          (if parsed-body
+            (do
+              (println "Detalhes da ação:")
+              (let [short-name (get parsed-body :shortName "Este campo não foi encontrado nos dados da API")
+                    long-name (get parsed-body :longName "Este campo não foi encontrado nos dados da API")
+                    symbol (get parsed-body :symbol "Este campo não foi encontrado nos dados da API")
+                    asset-type (or (re-find #"ON" short-name) (re-find #"PN" short-name) "Não disponível")
+                    variation (str (get parsed-body :regularMarketChange "Este campo não foi encontrado nos dados da API") " (" (get parsed-body :regularMarketChangePercent "Este campo não foi encontrado nos dados da API") "%)")
+                    last-price (get parsed-body :regularMarketPrice "Este campo não foi encontrado nos dados da API")
+                    high (get parsed-body :regularMarketDayHigh "Este campo não foi encontrado nos dados da API")
+                    low (get parsed-body :regularMarketDayLow "Este campo não foi encontrado nos dados da API")
+                    open (get parsed-body :regularMarketOpen "Este campo não foi encontrado nos dados da API")
+                    close (get parsed-body :regularMarketPreviousClose "Este campo não foi encontrado nos dados da API")
+                    time (get parsed-body :regularMarketTime "Este campo não foi encontrado nos dados da API")]
+                (println "Nome da ação: " (if short-name (first (str/split short-name #" ")) "") " (" long-name ")")
+                (println "Código da ação: " symbol)
+                (println "Tipo de ativo: " asset-type)
+                (println "Descrição da ação: Não há um campo específico para a descrição da ação neste JSON.")
+                (println "Variação do dia (em R$): " (get parsed-body :regularMarketChange))
+                (println "Variação do dia (percentual): " (get parsed-body :regularMarketChangePercent) "%")
+                (println "Último preço: " last-price)
+                (println "Preço máximo: " high)
+                (println "Preço mínimo: " low)
+                (println "Preço de abertura: " open)
+                (println "Preço de fechamento: " close)
+                (println "Hora: " time)
+                (println)
+                (prompt-usuario true symbol close)))
+            (println "Nenhum resultado encontrado para a ação.")))
+        (println "Erro na conexão com a API.")))))
+
+
+
+(defn prompt-usuario [api-data-mode & [short-name close]]
+  (println "Escolha uma opção:")
+  (if api-data-mode
+    (do
+      (println "1 - Comprar Ações")
+      (println "2 - Vender Ações")
+      (println "3 - Filtra Ação")
+      (println "4 - Rever B3")
+      (println "5 - Ver Carteira")
+      (println "6 - Sair"))
+    (do
+      (println "1 - Vender Ações")
+      (println "2 - Filtra Ação")
+      (println "3 - Rever B3")
+      (println "4 - Ver Carteira")
+      (println "5 - Sair")))
+  (let [opcao (Integer/parseInt (read-line))]
+    (cond
+      (and (= opcao 1) api-data-mode) (comprar-acao short-name close)
+      (and (= opcao 1) (not api-data-mode)) (vender-acao)
+      (and (= opcao 2) api-data-mode) (vender-acao)
+      (and (= opcao 2) (not api-data-mode)) (print-api-data)
+      (and (= opcao 3) api-data-mode) (print-api-data)
+      (and (= opcao 3) (not api-data-mode)) (rever-b3)
+      (and (= opcao 4) api-data-mode) (rever-b3)
+      (and (= opcao 4) (not api-data-mode)) (print-carteira true)
+      (and (= opcao 5) api-data-mode) (print-carteira true)
+      (and (= opcao 5) (not api-data-mode)) (println "Encerrando o programa...")
+      (and (= opcao 6) api-data-mode) (println "Encerrando o programa...")
+      :else (do (println "Opção inválida, tente novamente.") (if api-data-mode (prompt-usuario true short-name close) (-main))))))  ;; Chama a função main novamente se a opção for inválida
 
 (defn -main []
   (let [csv-data (csv->maps "acoes-listadas.csv")
         keys-to-select [:Código :Nome]
         selected-data (select-keys-from-maps csv-data keys-to-select)]
-    (do
-      (print-csv-data selected-data)
-
-      (println "Digite o código da ação para obter os detalhes:")
-      (let [stock-code (str/trim (read-line))]
-        (print-api-data stock-code))))
-
-  (println "Encerrando o programa..."))
+    (print-csv-data selected-data)
+    (print-api-data)))
 
 
