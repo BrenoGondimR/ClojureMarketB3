@@ -72,7 +72,7 @@
         (let [quantidade (Integer/parseInt (read-line))
               quantidade-acao (:quantidade dados)
               valor-total (:valor-total dados)
-              close (get-close acao)  ;; Obtem o valor da ação
+              close (get-close acao)  ;; Obtem o valor da ação fazendo a requisicao para a api da brap puxando o valor dela
               total (* quantidade close)]
           (if (<= quantidade quantidade-acao)
             (do
@@ -92,24 +92,23 @@
         keys-to-select [:Código :Nome]
         selected-data (select-keys-from-maps csv-data keys-to-select)]
     (print-csv-data selected-data)
-    (prompt-usuario false)))  ;; Chama a função prompt-usuario
+    (prompt-usuario false)))
 
 
-(defn get-close [stock-code]  ;; Adicionada função para obter o valor de uma ação
+(defn get-close [stock-code]
   (let [api-url (str "https://brapi.dev/api/quote/" stock-code)
         response (http/get api-url)
-        body (json/read-str (:body response) :key-fn keyword)]  ;; Construção do corpo da requisição
+        body (json/read-str (:body response) :key-fn keyword)]
     (if (= (:status response) 200)
       (let [results (get body :results)
             parsed-body (if (not-empty results)
                           (first results)
-                          (throw (Exception. "Nenhum resultado encontrado para a ação.")))]  ;; Parse dos resultados
+                          (throw (Exception. "Nenhum resultado encontrado para a ação.")))]
         (if parsed-body
           ;; Se os resultados existem, obtemos o preço de fechamento
           (get parsed-body :regularMarketPreviousClose)
           ;; Se os resultados estiverem vazios, lançamos uma exceção
           (throw (Exception. "Nenhum resultado encontrado para a ação."))))
-      ;; Se a resposta da API não for bem-sucedida, lançamos uma exceção
       (throw (Exception. "Erro na conexão com a API.")))))  ;; Lançamento de exceção
 
 
@@ -163,13 +162,13 @@
     (do
       (println "1 - Comprar Ações")
       (println "2 - Vender Ações")
-      (println "3 - Filtra Ação")
+      (println "3 - Buscar Ação")
       (println "4 - Rever B3")
       (println "5 - Ver Carteira")
       (println "6 - Sair"))
     (do
       (println "1 - Vender Ações")
-      (println "2 - Filtra Ação")
+      (println "2 - Buscar Ação")
       (println "3 - Rever B3")
       (println "4 - Ver Carteira")
       (println "5 - Sair")))
