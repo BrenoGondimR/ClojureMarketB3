@@ -41,22 +41,38 @@
 (defn print-carteira-user [chamar-prompt?]
   (println "Sua carteira:")
   (doseq [[acao dados] @carteira]
-    (println (str "Nome da ação: " acao ", Quantidade: " (:quantidade dados) ", Valor Total: " (:valor-total dados))))
+    (println (str "Nome da ação: " acao ", Quantidade: " (:quantidade dados) ", Valor Total: " (:valor-total dados) ", Tipo Do Ativo: " (:tipo-ativo dados))))
   (if chamar-prompt?
     (prompt-usuario false)))
 
-(defn print-csv [csv-data]
+(defn filtrar-carteira-ativo [filtro]
+  (filter (fn [[acao dados]]
+            (= filtro (:tipo-ativo dados)))
+          (seq @carteira)))
+
+(defn prompt-filtrar-carteira-ativo []
+  (println "Digite o filtro do tipo de ativo:")
+  (let [filtro (str/trim (read-line))]
+    (let [acoes-filtradas (filtrar-carteira-ativo filtro)]
+      (if (empty? acoes-filtradas)
+        (println "Você não possui esse tipo de ativo na sua carteira.")
+        (doseq [[acao dados] acoes-filtradas]
+          (println (str "Nome da ação: " acao ", Quantidade: " (:quantidade dados) ", Valor Total: " (:valor-total dados) ", Tipo Do Ativo: " (:tipo-ativo dados))))))
+    (prompt-usuario false)))
+
+
+(defn mostrar-csv [csv-data]
   (println "Lista do CSV:")
   (doseq [item csv-data]
     (println (str "Código: " (:Código item) ", Nome: " (:Nome item)))))
 
-(defn comprar-acoes [short-name close]
+(defn comprar-acoes [short-name close asset-type]
   (println "Quantas ações você deseja comprar? ")
   (let [quantidade (Integer/parseInt (read-line))
         total (* quantidade close)]
     (println "Ação comprada com sucesso! Quantidade: " quantidade)
     (println "Total a pagar: R$" total)
-    (swap! carteira assoc short-name {:quantidade quantidade :valor-total total})
+    (swap! carteira assoc short-name {:quantidade quantidade :valor-total total :tipo-ativo asset-type})
     (println "Nome da ação: " short-name)
     (println "Quantidade de ações: " quantidade)
     (println "Valor Total: " total)
@@ -91,7 +107,7 @@
   (let [csv-data (csv->map "acoes-listadas.csv")
         keys-to-select [:Código :Nome]
         selected-data (select-keys-from-maps csv-data keys-to-select)]
-    (print-csv selected-data)
+    (mostrar-csv selected-data)
     (prompt-usuario false)))
 
 
@@ -150,13 +166,13 @@
                 (println "Preço de fechamento: " close)
                 (println "Hora: " time)
                 (println)
-                (prompt-usuario true symbol close)))
+                (prompt-usuario true symbol close asset-type)))
             (println "Nenhum resultado encontrado para a ação.")))
         (println "Erro na conexão com a API.")))))
 
 
 
-(defn prompt-usuario [api-data-mode & [short-name close]]
+(defn prompt-usuario [api-data-mode & [short-name close asset-type]]
   (println "Escolha uma opção:")
   (if api-data-mode
     (do
@@ -165,16 +181,18 @@
       (println "3 - Buscar Ação")
       (println "4 - Rever B3")
       (println "5 - Ver Carteira")
-      (println "6 - Sair"))
+      (println "6 - Filtrar Ação Por Ativo")
+      (println "7 - Sair"))
     (do
       (println "1 - Vender Ações")
       (println "2 - Buscar Ação")
       (println "3 - Rever B3")
       (println "4 - Ver Carteira")
-      (println "5 - Sair")))
+      (println "5 - Filtrar Ação Por Ativo")
+      (println "6 - Sair")))
   (let [opcao (Integer/parseInt (read-line))]
     (cond
-      (and (= opcao 1) api-data-mode) (comprar-acoes short-name close)
+      (and (= opcao 1) api-data-mode) (comprar-acoes short-name close asset-type)
       (and (= opcao 1) (not api-data-mode)) (vender-acoes)
       (and (= opcao 2) api-data-mode) (vender-acoes)
       (and (= opcao 2) (not api-data-mode)) (print-api-data)
@@ -183,15 +201,17 @@
       (and (= opcao 4) api-data-mode) (rever-b3)
       (and (= opcao 4) (not api-data-mode)) (print-carteira-user true)
       (and (= opcao 5) api-data-mode) (print-carteira-user true)
-      (and (= opcao 5) (not api-data-mode)) (println "Encerrando o programa...")
-      (and (= opcao 6) api-data-mode) (println "Encerrando o programa...")
+      (and (= opcao 5) (not api-data-mode)) (prompt-filtrar-carteira-ativo)
+      (and (= opcao 6) api-data-mode) (prompt-filtrar-carteira-ativo)
+      (and (= opcao 6) (not api-data-mode)) (println "Encerrando o programa...")
+      (and (= opcao 7) api-data-mode) (println "Encerrando o programa...")
       :else (do (println "Opção inválida, tente novamente.") (if api-data-mode (prompt-usuario true short-name close) (-main))))))  ;; Chama a função main novamente se a opção for inválida
 
 (defn -main []
   (let [csv-data (csv->map "acoes-listadas.csv")
         keys-to-select [:Código :Nome]
         selected-data (select-keys-from-maps csv-data keys-to-select)]
-    (print-csv selected-data)
+    (mostrar-csv selected-data)
     (print-api-data)))
 
 
