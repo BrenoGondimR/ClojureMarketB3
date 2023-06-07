@@ -9,10 +9,6 @@
 (declare prompt-usuario)
 (declare print-carteira-user)
 (declare get-close)
-(def guardar-nome (atom nil))
-(def guardar-quantidade (atom nil))
-
-(def guardar-valor (atom nil))
 (def carteira (atom {}))
 
 (defn csv->map [filename]
@@ -88,12 +84,13 @@
         (let [quantidade (Integer/parseInt (read-line))
               quantidade-acao (:quantidade dados)
               valor-total (:valor-total dados)
-              close (get-close acao)  ;; Obtem o valor da ação fazendo a requisicao para a api da brap puxando o valor dela
+              tipo-ativo (:tipo-ativo dados)
+              close (get-close acao)  ;; Obten o valor da açao fazendo a requisicao para a api da brap puxando o valor dela
               total (* quantidade close)]
           (if (<= quantidade quantidade-acao)
             (do
               (let [novo-valor-total (- valor-total total)]
-                (swap! carteira assoc acao {:quantidade (- quantidade-acao quantidade) :valor-total novo-valor-total})  ;; Subtrai a quantidade vendida
+                (swap! carteira assoc acao {:quantidade (- quantidade-acao quantidade) :valor-total novo-valor-total :tipo-ativo tipo-ativo})  ;; Subtrai a quantidade vendida e troca a "struct" dela por essa nova atualzadad
                 (println "Ação vendida com sucesso! Quantidade: " quantidade)
                 (println "Total ganho: R$" total)
                 (println "Quantidade de ações restantes: " (- quantidade-acao quantidade))
@@ -121,9 +118,7 @@
                           (first results)
                           (throw (Exception. "Nenhum resultado encontrado para a ação.")))]
         (if parsed-body
-          ;; Se os resultados existem, obtemos o preço de fechamento
           (get parsed-body :regularMarketPreviousClose)
-          ;; Se os resultados estiverem vazios, lançamos uma exceção
           (throw (Exception. "Nenhum resultado encontrado para a ação."))))
       (throw (Exception. "Erro na conexão com a API.")))))  ;; Lançamento de exceção
 
